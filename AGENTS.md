@@ -13,8 +13,9 @@ Grants are `(service, account, resource, level)`. A `Provider` per service (`pro
 ## Rules that protect users
 
 - Dry run unless `apply`. Never change a default to apply.
-- The first sync imports and changes nothing; never remove access while there is no mapping.
+- A service is imported, never changed, by the first sync that reads it; never remove access on a service whose live state is not in the mapping (`imported`).
 - `Provider.guard` refuses removing or demoting the last administrator of a service; a new provider ships with its guard.
+- Accounts compare without case (`Grant.key`); a link is stored with the spelling the service reports.
 - A credential never reaches a message, a log line, the mapping or a test fixture.
 - A tool, a level or a README line ships only with the code path that makes it true, exercised against the real service.
 
