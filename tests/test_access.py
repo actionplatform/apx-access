@@ -74,7 +74,10 @@ class FirstSync(World):
         self.assertTrue(plan.bootstrap)
         self.assertEqual(plan.changes, [])
         self.assertEqual(self.writes(), 0)
-        self.assertTrue(self.directory.mapping.bootstrapped)
+        self.assertEqual(
+            sorted(self.directory.mapping.imported),
+            ["dokploy", "github", "jenkins", "sentry"],
+        )
 
         again = self.access.sync()
 
@@ -104,7 +107,7 @@ class FirstSync(World):
         self.bootstrapped()
         audit = self.access.audit()
 
-        self.assertTrue(audit.bootstrapped)
+        self.assertEqual(audit.imported, ["dokploy", "github", "jenkins", "sentry"])
         self.assertTrue(all(s.ok and not s.drift for s in audit.services))
         github = next(s for s in audit.services if s.service == "github")
         self.assertEqual(github.outside_accounts, ["acme-bot", "team:core"])
@@ -220,6 +223,7 @@ class Changes(World):
         self.directory.mapping.teams["backend"] = [
             spec("github", "team/backend", "member"),
             spec("jenkins", "folder/api", "read"),
+            spec("jenkins", "global", "read"),
         ]
 
         plan = self.access.sync(apply=True)
@@ -266,6 +270,89 @@ class Changes(World):
     def test_operations_before_bootstrap_are_refused(self):
         with self.assertRaisesRegex(AccessError, "run access_sync first"):
             self.access.grant("ben@acme.dev", "github", "repo/api", "pull")
+
+
+class Review(World):
+    def test_a_service_that_failed_is_imported_later_not_emptied(self):
+        down = self.access.providers.pop("sentry")
+        self.access.sync(apply=True, links=self.links)
+        self.access.providers["sentry"] = down
+
+        plan = self.access.sync(apply=True)
+
+        self.assertEqual(plan.imported, ["sentry"])
+        self.assertEqual(plan.changes, [])
+        self.assertIn("old@agency.dev", [m["email"] for m in self.sentry.members])
+        self.assertEqual(self.access.sync().changes, [])
+
+    def test_accounts_match_whatever_the_case(self):
+        self.access.sync(apply=True, links={"ana@acme.dev": {"github": "ANA"}})
+
+        self.assertEqual(self.directory.mapping.people["ana@acme.dev"]["github"], "ana")
+        self.directory.mapping.people["ana@acme.dev"]["github"] = "Ana"
+
+        self.assertEqual(self.access.sync().changes, [])
+
+    def test_a_team_grant_brings_organization_membership(self):
+        self.bootstrapped()
+        self.directory.members.append(
+            Person("cy@acme.dev", "u-cy", "Cy", "developer", ("backend",))
+        )
+        self.directory.mapping.people["cy@acme.dev"] = {"github": "cy"}
+        self.directory.mapping.teams["backend"] = [
+            spec("github", "team/backend", "member")
+        ]
+
+        self.access.sync(apply=True)
+
+        self.assertEqual(self.github.members["cy"], "member")
+        self.assertEqual(self.access.sync().changes, [])
+
+    def test_folder_read_through_a_group_is_left_alone(self):
+        self.jenkins.role("projectRoles", "folder:api:build", [], ["ben"])
+        self.links["ben@acme.dev"]["jenkins"] = "ben"
+        self.bootstrapped()
+
+        self.assertEqual(self.access.sync().changes, [])
+
+    def test_expired_dokploy_invitations_are_not_access(self):
+        self.dokploy.invitations = [
+            {
+                "id": "i1",
+                "email": "late@acme.dev",
+                "role": "member",
+                "status": "pending",
+                "expiresAt": "2020-01-01T00:00:00.000Z",
+            },
+            {
+                "id": "i2",
+                "email": "soon@acme.dev",
+                "role": "member",
+                "status": "pending",
+                "expiresAt": "2999-01-01T00:00:00.000Z",
+            },
+        ]
+
+        accounts = {g.account for g in self.access.providers["dokploy"].read()}
+
+        self.assertNotIn("late@acme.dev", accounts)
+        self.assertIn("soon@acme.dev", accounts)
+
+        self.access.providers["dokploy"].apply(
+            Op("add", Grant("dokploy", "late@acme.dev", "org", "member"))
+        )
+        self.assertEqual(
+            [i["email"] for i in self.dokploy.invitations],
+            ["soon@acme.dev", "late@acme.dev"],
+        )
+
+    def test_dokploy_admins_need_no_project_grants(self):
+        self.bootstrapped()
+        self.directory.mapping.roles["owner"] = [
+            spec("dokploy", "project/site", "access")
+        ]
+
+        self.assertEqual(self.access.sync().changes, [])
 
 
 class Providers(unittest.TestCase):
@@ -335,7 +422,7 @@ class Mappings(unittest.TestCase):
         m = Mapping(
             people={"a@x": {"github": "a"}},
             keep=[Grant("github", "b", "org", "member").as_dict()],
-            bootstrapped="t",
+            imported={"github": "t"},
         )
 
         self.assertEqual(Mapping.of(m.as_dict()), m)
