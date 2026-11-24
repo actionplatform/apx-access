@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.1 — 2026-11-24
+
+### CI
+- publish with the pypa action from the workflow, as apx-example does (#3)
+
 ## v0.1.0 — 2026-11-24
 
 ### Features
