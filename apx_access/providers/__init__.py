@@ -1,0 +1,1 @@
+"""One provider per service."""
