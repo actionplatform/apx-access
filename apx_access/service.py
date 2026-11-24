@@ -43,6 +43,7 @@ class Access:
                         service=name,
                         ok=False,
                         error=errors.get(name) or self.unavailable.get(name),
+                        imported=name in mapping.imported,
                     )
                 )
                 continue

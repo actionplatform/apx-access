@@ -355,6 +355,18 @@ class Review(World):
         self.assertEqual(self.access.sync().changes, [])
 
 
+class Unread(World):
+    def test_a_service_that_cannot_be_read_is_not_reported_as_imported(self):
+        self.access.unavailable["sentry"] = "sentry: set AP_ACCESS_SENTRY_TOKEN"
+        self.access.providers.pop("sentry")
+        self.access.sync(apply=True, links=self.links)
+
+        row = next(s for s in self.access.audit().services if s.service == "sentry")
+
+        self.assertFalse(row.ok)
+        self.assertFalse(row.imported)
+
+
 class Providers(unittest.TestCase):
     def test_jenkins_without_role_strategy_says_what_to_install(self):
         with self.assertRaisesRegex(AccessError, "role-strategy"):
