@@ -1,4 +1,4 @@
-"""Jenkins under Role-based Authorization Strategy (the role-strategy plugin): a global role per account, and item roles that open one folder each."""
+"""Jenkins under Role-based Authorization Strategy (the role-strategy plugin): a global role per account, and item roles that open one folder each. A folder is invisible without Overall/Read, so a folder grant asks for global `read` too (`companions`)."""
 
 from __future__ import annotations
 
@@ -120,16 +120,11 @@ class JenkinsProvider(Provider):
         if op.action == "change" and old and old != role:
             self._assign(kind_roles, old, g.account, False)
 
-    def expand(self, grants: set[Grant]) -> set[Grant]:
-        placed = {g.account for g in grants if g.resource == "global"}
-        needing = {
-            g.account
-            for g in grants
-            if self.kind(g.resource) in ("folder", "item-role")
-            and g.account not in placed
-        }
+    def companions(self, resource: str) -> list[tuple[str, str]]:
+        if self.kind(resource) in ("folder", "item-role"):
+            return [("global", "read")]
 
-        return grants | {Grant("jenkins", a, "global", "read") for a in needing}
+        return []
 
     def guard(self, ops: list[Op], live: list[Grant]) -> dict[Op, str]:
         admins = {

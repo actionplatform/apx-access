@@ -147,6 +147,19 @@ class GitHubProvider(Provider):
         else:
             raise AccessError(f"github: cannot apply {g.resource}")
 
+    def companions(self, resource: str) -> list[tuple[str, str]]:
+        return [("org", "member")] if self.kind(resource) == "team" else []
+
+    def expand(self, grants: set[Grant]) -> set[Grant]:
+        members = {g.account.lower() for g in grants if g.resource == "org"}
+        joining = {
+            g.account
+            for g in grants
+            if self.kind(g.resource) == "team" and g.account.lower() not in members
+        }
+
+        return grants | {Grant("github", a, "org", "member") for a in joining}
+
     def guard(self, ops: list[Op], live: list[Grant]) -> dict[Op, str]:
         admins = {g.account for g in live if g.resource == "org" and g.level == "admin"}
         losing = {

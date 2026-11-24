@@ -59,6 +59,10 @@ class Provider(ABC):
 
         return sorted(best.values())
 
+    def companions(self, resource: str) -> list[tuple[str, str]]:
+        """Grants the service needs beside this one for it to be usable, as (resource, level); `access_grant` adds the missing ones."""
+        return []
+
     def expand(self, grants: set[Grant]) -> set[Grant]:
         """Grants the service needs alongside the ones asked for."""
         return grants

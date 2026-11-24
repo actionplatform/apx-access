@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from apx_access.abc import AccessError, Provider
@@ -31,7 +32,7 @@ LISTS = (
 
 
 class DokployProvider(Provider):
-    """Accounts are user emails. `org` is `member` or `admin` (the owner is read, never changed); `project/<name>` opens one project and its environments to a member — owners and admins see every project already. An added member gets an invitation and counts as granted while it is pending; projects follow once it is accepted."""
+    """Accounts are user emails. `org` is `member` or `admin` (the owner is read, never changed); `project/<name>` opens one project and its environments to a member — owners and admins see every project already. An added member gets an invitation and counts as granted while it is pending and unexpired; projects follow once it is accepted. Removing a member is Dokploy's `user.remove`, which on a self-hosted instance deletes the user."""
 
     name = "dokploy"
     levels = {"org": ("member", "admin", "owner"), "project": ("access",)}
@@ -61,7 +62,7 @@ class DokployProvider(Provider):
                         )
 
         for inv in self.http.call("GET", "organization.allInvitations") or []:
-            if inv.get("status") == "pending" and inv.get("email"):
+            if _open(inv) and inv.get("email"):
                 grants.append(
                     Grant(
                         "dokploy",
@@ -84,6 +85,21 @@ class DokployProvider(Provider):
         else:
             raise AccessError(f"dokploy: cannot apply {g.resource}")
 
+    def expand(self, grants: set[Grant]) -> set[Grant]:
+        seeing_all = {
+            g.account.lower()
+            for g in grants
+            if g.resource == "org" and g.level in ("admin", "owner")
+        }
+
+        return {
+            g
+            for g in grants
+            if not (
+                self.kind(g.resource) == "project" and g.account.lower() in seeing_all
+            )
+        }
+
     def guard(self, ops: list[Op], live: list[Grant]) -> dict[Op, str]:
         owners = {g.account for g in live if g.resource == "org" and g.level == "owner"}
 
@@ -98,6 +114,15 @@ class DokployProvider(Provider):
         g = op.grant
 
         if op.action == "add":
+            stale = self._invitation(g.account)
+
+            if stale is not None:
+                self.http.call(
+                    "POST",
+                    "organization.removeInvitation",
+                    {"invitationId": stale["id"]},
+                )
+
             self.http.call(
                 "POST",
                 "organization.inviteMember",
@@ -190,3 +215,23 @@ class DokployProvider(Provider):
             ),
             None,
         )
+
+
+def _open(invitation: dict) -> bool:
+    if invitation.get("status") != "pending":
+        return False
+
+    expires = str(invitation.get("expiresAt") or "")
+
+    if not expires:
+        return True
+
+    try:
+        moment = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+
+    return moment > datetime.now(timezone.utc)
