@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.1.2 — 2026-11-24
+
+### Bug Fixes
+- **audit:** a service that could not be read is not reported as imported (#5)
+
 ## v0.1.1 — 2026-11-24
 
 ### CI

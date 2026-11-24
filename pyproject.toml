@@ -1,6 +1,6 @@
 [project]
 name = "apx-access"
-version = "0.1.1"
+version = "0.1.2"
 description = "Access for Action Platform: an organization's members, teams and roles mapped onto GitHub, Jenkins, Sentry and Dokploy — read live state, diff, apply, offboard."
 readme = "README.md"
 license = "Apache-2.0"
