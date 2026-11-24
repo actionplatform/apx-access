@@ -1,0 +1,13 @@
+[project]
+name = "apx-access"
+type = "library"
+language = "python"
+ci = "github"
+
+[source_host]
+kind = "github"
+repo = "actionplatform/apx-access"
+
+[release]
+strategy = "semver"
+changelog = "conventional"
