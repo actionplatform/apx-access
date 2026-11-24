@@ -37,6 +37,9 @@ class Change(BaseModel):
 class ServiceAudit(BaseModel):
     service: str
     ok: bool
+    imported: bool = Field(
+        True, description="False until a sync imports this service; no drift until then"
+    )
     error: Optional[str] = None
     live: int = Field(0, description="Grants the service holds")
     wanted: int = Field(0, description="Grants the mapping asks for")
@@ -46,13 +49,15 @@ class ServiceAudit(BaseModel):
     members_without_account: list[str] = Field(default_factory=list)
     outside_accounts: list[str] = Field(
         default_factory=list,
-        description="Accounts with access that belong to no member; kept as found",
+        description="Accounts with access that belong to no member; a sync keeps the ones imported into `keep` and removes the rest",
     )
 
 
 class Audit(BaseModel):
     organization_members: int
-    bootstrapped: bool
+    imported: list[str] = Field(
+        default_factory=list, description="Services whose live state is in the mapping"
+    )
     services: list[ServiceAudit]
 
 
@@ -77,7 +82,10 @@ class Plan(BaseModel):
     dry_run: bool
     bootstrap: bool = Field(
         False,
-        description="True when this run imported live state instead of changing it",
+        description="True when this run imported a service's live state instead of changing it",
+    )
+    imported: list[str] = Field(
+        default_factory=list, description="The services this run imported"
     )
     changes: list[Change] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)

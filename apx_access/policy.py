@@ -64,7 +64,7 @@ def diff(
     ops: list[Op] = []
 
     for key, g in sorted(target.items()):
-        if accounts is not None and g.account not in accounts:
+        if accounts is not None and g.account.lower() not in accounts:
             continue
 
         current = have.get(key)
@@ -75,7 +75,7 @@ def diff(
             ops.append(Op("change", g, current.level))
 
     for key, g in sorted(have.items()):
-        if accounts is not None and g.account not in accounts:
+        if accounts is not None and g.account.lower() not in accounts:
             continue
 
         if key not in target:
@@ -91,15 +91,17 @@ def bootstrap(
     providers: dict[str, Provider],
     links: Optional[dict[str, dict[str, str]]] = None,
 ) -> Mapping:
-    """Import what each service holds today: link members to accounts (given links, then the ones already known, then an email that is the account itself), record each linked member's access that no role or team explains as their own grants, and keep every other account's access as found. A sync right after changes nothing."""
+    """Import what each service holds today: link members to accounts (given links, then the ones already known, then an email that is the account itself), record each linked member's access that no role or team explains as their own grants, and keep every other account's access as found. Only the services in `live` are imported; a sync right after changes nothing on them."""
     result = Mapping.of(mapping.as_dict())
     emails = {p.email for p in people}
 
-    for email, ids in (links or {}).items():
-        result.people.setdefault(email.lower(), {}).update(ids)
-
     for service, grants in live.items():
         accounts = {g.account.lower(): g.account for g in grants}
+
+        for email, ids in (links or {}).items():
+            if service in ids:
+                found = accounts.get(ids[service].lower(), ids[service])
+                result.people.setdefault(email.lower(), {})[service] = found
 
         for person in people:
             if not result.account(person.email, service) and person.email in accounts:
@@ -122,13 +124,16 @@ def bootstrap(
             owner = result.owner_of(service, g.account)
 
             if owner and owner in emails:
-                if explained.get(g.key) != g:
+                kept = explained.get(g.key)
+
+                if kept is None or kept.level != g.level:
                     result.grants.setdefault(owner, []).append(
                         spec(service, g.resource, g.level)
                     )
             else:
                 result.keep.append(g.as_dict())
 
-    result.bootstrapped = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    moment = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    result.imported.update({service: moment for service in live})
 
     return result

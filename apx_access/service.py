@@ -1,4 +1,4 @@
-"""The six operations behind the tools and the commands: who, audit, grant, revoke, offboard, sync. Dry runs unless `apply`; a first sync only imports."""
+"""The six operations behind the tools and the commands: who, audit, grant, revoke, offboard, sync. Dry runs unless `apply`; a service is imported, never changed, by the sync that first sees it."""
 
 from __future__ import annotations
 
@@ -47,6 +47,18 @@ class Access:
                 )
                 continue
 
+            if name not in mapping.imported:
+                rows.append(
+                    ServiceAudit(
+                        service=name,
+                        ok=True,
+                        imported=False,
+                        live=len(live[name]),
+                        outside_accounts=sorted({g.account for g in live[name]}),
+                    )
+                )
+                continue
+
             ops = diff(want[name], live[name])
             linked = {mapping.account(p.email, name).lower() for p in people} - {""}
             rows.append(
@@ -71,7 +83,7 @@ class Access:
 
         return Audit(
             organization_members=len(people),
-            bootstrapped=bool(mapping.bootstrapped),
+            imported=sorted(mapping.imported),
             services=rows,
         )
 
@@ -131,33 +143,45 @@ class Access:
         live, errors = self._live(providers)
         problems = [f"{k}: {v}" for k, v in errors.items()]
 
-        if reimport or links or not mapping.bootstrapped:
-            proposed = bootstrap(mapping, people, live, providers, links)
-
-            if apply:
-                self.directory.save(proposed)
-
-            return Plan(
-                dry_run=not apply,
-                bootstrap=True,
-                errors=problems,
-                mapping=proposed.as_dict(),
-                note=(
-                    "Imported what each service holds today into the mapping; nothing was changed on any service."
-                    if apply
-                    else "Proposal: run again with apply to store it. No service is changed by a bootstrap."
-                ),
-            )
-
-        want = desired(mapping, people, providers)
+        fresh = {
+            name: grants
+            for name, grants in live.items()
+            if reimport or links or name not in mapping.imported
+        }
+        proposed = (
+            bootstrap(mapping, people, fresh, providers, links) if fresh else mapping
+        )
+        want = desired(proposed, people, providers)
         changes = []
 
         for name, grants in live.items():
-            changes += self._run(
-                providers[name], diff(want[name], grants), grants, apply
+            if name not in fresh:
+                changes += self._run(
+                    providers[name], diff(want[name], grants), grants, apply
+                )
+
+        if apply and fresh:
+            self.directory.save(proposed)
+
+        note = None
+
+        if fresh:
+            names = ", ".join(sorted(fresh))
+            note = (
+                f"Imported what {names} holds today into the mapping; nothing was changed there."
+                if apply
+                else f"Would import what {names} holds today into the mapping and change nothing there; run again with apply to store it."
             )
 
-        return Plan(dry_run=not apply, changes=changes, errors=problems)
+        return Plan(
+            dry_run=not apply,
+            bootstrap=bool(fresh),
+            imported=sorted(fresh),
+            changes=changes,
+            errors=problems,
+            mapping=proposed.as_dict() if fresh else None,
+            note=note,
+        )
 
     def grant(
         self,
@@ -174,7 +198,7 @@ class Access:
         if why:
             raise AccessError(why)
 
-        mapping, people = self._ready()
+        mapping, people = self._ready(service)
         found = self._person(person, people, mapping)
 
         if account:
@@ -190,7 +214,16 @@ class Access:
             for s in mapping.grants.get(found.email, [])
             if (s["service"], s["resource"]) != (service, resource)
         ]
-        mapping.grants[found.email] = specs + [spec(service, resource, level)]
+        specs.append(spec(service, resource, level))
+        held = {
+            s["resource"] for _, s in sources(mapping, found) if s["service"] == service
+        } | {s["resource"] for s in specs if s["service"] == service}
+
+        for needed, needed_level in provider.companions(resource):
+            if needed not in held:
+                specs.append(spec(service, needed, needed_level))
+
+        mapping.grants[found.email] = specs
 
         return self._personal(mapping, people, found, service, apply)
 
@@ -198,7 +231,7 @@ class Access:
         self, person: str, service: str, resource: str, apply: bool = False
     ) -> Plan:
         self._provider(service)
-        mapping, people = self._ready()
+        mapping, people = self._ready(service)
         found = self._person(person, people, mapping)
         own = mapping.grants.get(found.email, [])
         kept = [s for s in own if (s["service"], s["resource"]) != (service, resource)]
@@ -305,12 +338,13 @@ class Access:
     ) -> list[Change]:
         return self._run(provider, ops, live, False)
 
-    def _ready(self) -> tuple[Mapping, list[Person]]:
+    def _ready(self, service: Optional[str] = None) -> tuple[Mapping, list[Person]]:
         mapping = self.directory.load()
+        missing = service not in mapping.imported if service else not mapping.imported
 
-        if not mapping.bootstrapped:
+        if missing:
             raise AccessError(
-                "no mapping yet: run access_sync first — it imports what each service holds today"
+                f"{service or 'no service'} has not been imported yet: run access_sync first — it imports what each service holds today and changes nothing"
             )
 
         return mapping, self.directory.people()

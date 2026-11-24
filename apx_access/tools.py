@@ -123,5 +123,5 @@ def register_tools(mcp: Any, options: Any) -> None:
             ),
         ] = None,
     ) -> Plan:
-        """Make every service match the mapping. The first run only imports what the services hold today (nothing is changed, nothing removed); after that it adds, changes and removes to close the drift access_audit shows."""
+        """Make every service match the mapping. A service not imported yet is only imported — what it holds today goes into the mapping and nothing there is changed or removed; an imported service gets the adds, changes and removes that close the drift access_audit shows."""
         return connect(options).sync(service, apply, reimport, links)

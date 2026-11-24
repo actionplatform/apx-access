@@ -17,7 +17,7 @@ class Grant:
 
     @property
     def key(self) -> tuple[str, str, str]:
-        return (self.service, self.account, self.resource)
+        return (self.service, self.account.lower(), self.resource)
 
     def as_dict(self) -> dict[str, str]:
         return asdict(self)
@@ -58,14 +58,14 @@ class Person:
 
 @dataclass
 class Mapping:
-    """What the organization decided: `people` links a member's email to an account per service, `roles` and `teams` name the grants a platform role or team carries, `grants` the ones given to one person, `keep` the access of accounts outside the organization left as found."""
+    """What the organization decided: `people` links a member's email to an account per service, `roles` and `teams` name the grants a platform role or team carries, `grants` the ones given to one person, `keep` the access of accounts outside the organization left as found, `imported` when each service's live state was imported."""
 
     people: dict[str, dict[str, str]] = field(default_factory=dict)
     roles: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     teams: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     grants: dict[str, list[dict[str, str]]] = field(default_factory=dict)
     keep: list[dict[str, str]] = field(default_factory=list)
-    bootstrapped: str = ""
+    imported: dict[str, str] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -81,7 +81,7 @@ class Mapping:
             teams={k: list(v) for k, v in (data.get("teams") or {}).items()},
             grants={k: list(v) for k, v in (data.get("grants") or {}).items()},
             keep=list(data.get("keep") or []),
-            bootstrapped=str(data.get("bootstrapped") or ""),
+            imported={k: str(v) for k, v in (data.get("imported") or {}).items()},
         )
 
     def account(self, email: str, service: str) -> str:

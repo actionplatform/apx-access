@@ -95,7 +95,7 @@ def sync(
         [], help="email:service:account, for an import; repeatable"
     ),
 ) -> None:
-    """Make every service match the mapping; the first run imports."""
+    """Make every service match the mapping; a service not imported yet is only imported."""
     links: dict[str, dict[str, str]] = {}
 
     for row in link:
